@@ -12,18 +12,18 @@ Mnist._image_axes = 'bhwc'
 Mnist._feature_size = 1*28*28
 Mnist._classes = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9}
 
-function Mnist:__init(config) 
+function Mnist:__init(config)
    config = config or {}
-   assert(torch.type(config) == 'table' and not config[1], 
+   assert(torch.type(config) == 'table' and not config[1],
       "Constructor requires key-value arguments")
    local args, load_all, input_preprocess, target_preprocess
-   args, self._valid_ratio, self._train_file, self._test_file, 
+   args, self._valid_ratio, self._train_file, self._test_file,
          self._data_path, self._scale, self._binarize, self._shuffle,
-         self._download_url, load_all, input_preprocess, 
+         self._download_url, load_all, input_preprocess,
          target_preprocess
       = xlua.unpack(
       {config},
-      'Mnist', 
+      'Mnist',
       'Handwritten digit classification problem.' ..
       'Note: Train and valid sets are already shuffled.',
       {arg='valid_ratio', type='number', default=1/6,
@@ -34,16 +34,16 @@ function Mnist:__init(config)
        help='name of test file'},
       {arg='data_path', type='string', default=dp.DATA_DIR,
        help='path to data repository'},
-      {arg='scale', type='table', 
+      {arg='scale', type='table',
        help='bounds to scale the values between. [Default={0,1}]'},
-      {arg='binarize', type='boolean', 
+      {arg='binarize', type='boolean',
        help='binarize the inputs (0s and 1s)', default=false},
-      {arg='shuffle', type='boolean', 
+      {arg='shuffle', type='boolean',
        help='shuffle different sets', default=false},
       {arg='download_url', type='string',
        default='https://stife076.files.wordpress.com/2015/02/mnist4.zip',
        help='URL from which to download dataset if not found on disk.'},
-      {arg='load_all', type='boolean', 
+      {arg='load_all', type='boolean',
        help='Load all datasets : train, valid, test.', default=true},
       {arg='input_preprocess', type='table | dp.Preprocess',
        help='to be performed on set inputs, measuring statistics ' ..
@@ -52,7 +52,7 @@ function Mnist:__init(config)
       {arg='target_preprocess', type='table | dp.Preprocess',
        help='to be performed on set targets, measuring statistics ' ..
        '(fitting) on the train_set only, and reusing these to ' ..
-       'preprocess the valid_set and test_set.'}  
+       'preprocess the valid_set and test_set.'}
    )
    if (self._scale == nil) then
       self._scale = {0,1}
@@ -77,7 +77,7 @@ function Mnist:loadTrainValid()
    local size = math.floor(data[1]:size(1)*(1-self._valid_ratio))
    self:trainSet(
       self:createDataSet(
-         data[1]:narrow(1, start, size), data[2]:narrow(1, start, size), 
+         data[1]:narrow(1, start, size), data[2]:narrow(1, start, size),
          'train'
       )
    )
@@ -86,11 +86,11 @@ function Mnist:loadTrainValid()
       print"Warning : No Valid Set due to valid_ratio == 0"
       return
    end
-   start = size
-   size = data[1]:size(1)-start
+   start = size+1
+   size = data[1]:size(1)-start+1
    self:validSet(
       self:createDataSet(
-         data[1]:narrow(1, start, size), data[2]:narrow(1, start, size), 
+         data[1]:narrow(1, start, size), data[2]:narrow(1, start, size),
          'valid'
       )
    )
@@ -120,7 +120,7 @@ function Mnist:createDataSet(inputs, targets, which_set)
    end
    -- class 0 will have index 1, class 1 index 2, and so on.
    targets:add(1)
-   -- construct inputs and targets dp.Views 
+   -- construct inputs and targets dp.Views
    local input_v, target_v = dp.ImageView(), dp.ClassView()
    input_v:forward(self._image_axes, inputs)
    target_v:forward('b', targets)
@@ -133,8 +133,8 @@ end
 
 function Mnist:loadData(file_name, download_url)
    local path = DataSource.getDataPath{
-      name=self._name, url=download_url, 
-      decompress_file=file_name, 
+      name=self._name, url=download_url,
+      decompress_file=file_name,
       data_dir=self._data_path
    }
    -- backwards compatible with old binary format
@@ -144,4 +144,3 @@ function Mnist:loadData(file_name, download_url)
    end
    return data
 end
-
