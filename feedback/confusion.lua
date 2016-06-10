@@ -6,15 +6,15 @@
 ------------------------------------------------------------------------
 local Confusion, parent = torch.class("dp.Confusion", "dp.Feedback")
 Confusion.isConfusion = true
-   
+
 function Confusion:__init(config)
    require 'optim'
    config = config or {}
-   assert(torch.type(config) == 'table' and not config[1], 
+   assert(torch.type(config) == 'table' and not config[1],
       "Constructor requires key-value arguments")
    local args, bce, name, target_dim, output_module = xlua.unpack(
       {config},
-      'Confusion', 
+      'Confusion',
       'Adapter for optim.ConfusionMatrix',
       {arg='bce', type='boolean', default=false,
        help='set true when using Binary Cross-Entropy (BCE)Criterion'},
@@ -47,7 +47,7 @@ function Confusion:_add(batch, output, report)
    if self._output_module then
       output = self._output_module:updateOutput(output)
    end
-   
+
    if not self._cm then
       if self._bce then
          self._cm = optim.ConfusionMatrix({0,1})
@@ -56,30 +56,30 @@ function Confusion:_add(batch, output, report)
       end
       self._cm:zero()
    end
-   
+
    local act = self._bce and output:view(-1) or output:view(output:size(1), -1)
    local tgt = batch:targets():forward('b')
    if self._target_dim >0 then
       tgt=tgt[self._target_dim]
    end
-   
+
    if self._bce then
       self._act = self._act or act.new()
       self._tgt = self._tgt or tgt.new()
       -- round it to get a class
       -- add 1 to get indices starting at 1
-      self._act:gt(act, 0.5):add(1) 
+      self._act:gt(act, 0.5):add(1)
       self._tgt:add(tgt,1)
       act = self._act
       tgt = self._tgt
    end
-   
+
    if not (torch.isTypeOf(act,'torch.FloatTensor') or torch.isTypeOf(act, 'torch.DoubleTensor')) then
       self._actf = self.actf or torch.FloatTensor()
       self._actf:resize(act:size()):copy(act)
       act = self._actf
    end
-   
+
    self._cm:batchAdd(act, tgt)
 end
 
@@ -96,12 +96,13 @@ function Confusion:report()
    end
    --valid means accuracy
    --union means divide valid classification by sum of rows and cols
-   -- (as opposed to just cols.) minus valid classificaiton 
+   -- (as opposed to just cols.) minus valid classificaiton
    -- (which is included in each sum)
-   return { 
+   return {
       [self:name()] = {
+         cm = cm,
          matrix = cm.mat,
-         per_class = { 
+         per_class = {
             accuracy = cm.valids,
             union_accuracy = cm.unionvalids,
             avg = {
@@ -116,4 +117,3 @@ function Confusion:report()
       n_sample = self._n_sample
    }
 end
-
