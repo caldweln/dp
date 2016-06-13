@@ -17,7 +17,7 @@ function Mnist:__init(config)
    assert(torch.type(config) == 'table' and not config[1],
       "Constructor requires key-value arguments")
    local args, load_all, input_preprocess, target_preprocess
-   args, self._valid_ratio, self._train_file, self._test_file,
+   args, self._fracture_data, self._valid_ratio, self._train_file, self._test_file,
          self._data_path, self._scale, self._binarize, self._shuffle,
          self._download_url, load_all, input_preprocess,
          target_preprocess
@@ -26,6 +26,8 @@ function Mnist:__init(config)
       'Mnist',
       'Handwritten digit classification problem.' ..
       'Note: Train and valid sets are already shuffled.',
+      {arg='fracture_data', type='number', default=1,
+       help='proportion of data set to use.'},
       {arg='valid_ratio', type='number', default=1/6,
        help='proportion of training set to use for cross-validation.'},
       {arg='train_file', type='string', default='train.th7',
@@ -34,7 +36,7 @@ function Mnist:__init(config)
        help='name of test file'},
       {arg='data_path', type='string', default=dp.DATA_DIR,
        help='path to data repository'},
-      {arg='scale', type='table',
+        {arg='scale', type='table',
        help='bounds to scale the values between. [Default={0,1}]'},
       {arg='binarize', type='boolean',
        help='binarize the inputs (0s and 1s)', default=false},
@@ -72,9 +74,10 @@ function Mnist:loadTrainValid()
    --Data will contain a tensor where each row is an example, and where
    --the last column contains the target class.
    local data = self:loadData(self._train_file, self._download_url)
+   local dataSize = math.floor(data[1]:size(1) * self._fracture_data)
    -- train
    local start = 1
-   local size = math.floor(data[1]:size(1)*(1-self._valid_ratio))
+   local size = math.floor(dataSize*(1-self._valid_ratio))
    self:trainSet(
       self:createDataSet(
          data[1]:narrow(1, start, size), data[2]:narrow(1, start, size),
@@ -87,7 +90,7 @@ function Mnist:loadTrainValid()
       return
    end
    start = size+1
-   size = data[1]:size(1)-start+1
+   size = dataSize-start+1
    self:validSet(
       self:createDataSet(
          data[1]:narrow(1, start, size), data[2]:narrow(1, start, size),
@@ -99,8 +102,9 @@ end
 
 function Mnist:loadTest()
    local test_data = self:loadData(self._test_file, self._download_url)
+   local dataSize = math.floor(test_data[1]:size(1) * self._fracture_data)
    self:testSet(
-      self:createDataSet(test_data[1], test_data[2], 'test')
+      self:createDataSet(test_data[1]:narrow(1, 1, dataSize), test_data[2]:narrow(1, 1, dataSize), 'test')
    )
    return self:testSet()
 end
