@@ -10,7 +10,7 @@ Svhn.isSvhn = true
 Svhn._name = 'svhn'
 Svhn._image_size = {3, 32, 32}
 Svhn._feature_size = 3*32*32
-Svhn._image_axes = 'bchw' 
+Svhn._image_axes = 'bchw'
 Svhn._classes = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9}
 
 function Svhn:__init(config)
@@ -19,14 +19,16 @@ function Svhn:__init(config)
       "Constructor requires key-value arguments")
    local load_all, input_preprocess, target_preprocess
 
-   self.args, self._valid_ratio, self._valid_per_class, self._use_extra,
+   self.args, self._fracture_data, self._valid_ratio, self._valid_per_class, self._use_extra,
    self._extra_file, self._train_file, self._test_file,
-   self._data_path, self._shuffle, self._scale, self._download_url, 
+   self._data_path, self._shuffle, self._scale, self._download_url,
    load_all, input_preprocess, target_preprocess
       = xlua.unpack(
       {config},
-      'Svhn', 
+      'Svhn',
       'Street View House Numbers datasource',
+      {arg='fracture_data', type='number', default=1,
+       help='proportion of data set to use.'},
       {arg='valid_ratio', type='number | table',
        help='proportion of training set to use for cross-validation.'..
        'A pair of numbers can be used to specify {train, extra}.'},
@@ -92,38 +94,38 @@ function Svhn:_loadTrainValid(file_name, valid_ratio, valid_per_class)
       name=self._name, url=self._download_url,
       decompress_file=file_name, data_dir=self._data_path
    }
-   local data = torch.load(doc_path,'ascii') 
+   local data = torch.load(doc_path,'ascii')
    local inputs = data.X:transpose(3,4):float() -- was ByteTensor
    data.X = nil
    collectgarbage()
    local targets = data.y:view(-1):int() --was DoubleTensor
    data = nil
    collectgarbage()
-   
+
    local tstart, vstop = self._train_start, self._valid_stop
-   
+
    if valid_ratio then
       -- train
       local start = 1
       local size = math.floor(inputs:size(1)*(1-valid_ratio))
       local indices = self._index_tensor:narrow(1, tstart, size)
-      
+
       self._input_tensor:indexCopy(1, indices, inputs:narrow(1, start, size))
       self._target_tensor:indexCopy(1, indices, targets:narrow(1, start, size))
-      
+
       self._train_start = tstart + size
-      
+
       -- valid
       start = size + 1
       size = inputs:size(1) - start
       local vstart = vstop - size + 1
-      
+
       local vinputs = self._input_tensor:narrow(1, vstart, size)
       vinputs:copy(inputs:narrow(1, start, size))
-      
+
       local ttargets = self._target_tensor:narrow(1, vstart, size)
       valid_targets = targets:narrow(1, start, size)
-      
+
       self._valid_stop = vstart - 1
    else
       self._fbuffer = self._fbuffer or torch.FloatTensor()
@@ -134,16 +136,16 @@ function Svhn:_loadTrainValid(file_name, valid_ratio, valid_per_class)
          i = i + 1
          table.insert(class_indices[class], i)
       end)
-      
+
       local nValid = valid_per_class * 10
       local nTrain = targets:size(1) - nValid
       local vstart = vstop - nValid + 1
       assert(nTrain > 1, "valid per class is too high")
-      
+
       local indices = self._index_tensor:narrow(1, tstart, nTrain)
       local valid_inputs = self._input_tensor:narrow(1, vstart, nValid)
       local valid_targets = self._target_tensor:narrow(1, vstart, nValid)
-      
+
       local vstart_, tstart_ = 1, 1
       for class, cindices in ipairs(class_indices) do
          local cidx = torch.LongTensor(cindices)
@@ -154,7 +156,7 @@ function Svhn:_loadTrainValid(file_name, valid_ratio, valid_per_class)
          vinput:index(inputs, 1, vidx)
          vtarget:index(targets, 1, vidx)
          vstart_ = vstart_ + valid_per_class
-         
+
          -- train
          local tsize = cidx:size(1)-valid_per_class
          local tidx = cidx:narrow(1, valid_per_class+1, tsize)
@@ -176,60 +178,64 @@ end
 
 function Svhn:loadTrainValid()
    local nSample = 73257
-   local nValid = self._valid_ratio 
+   local nValid = self._valid_ratio
                   and math.floor(nSample*self._valid_ratio[1])
                   or self._valid_per_class[1] * 10
-                  
+
    if self._use_extra then
       nSample = nSample + 531131
       nValid = nValid + (self._valid_ratio
-                        and math.floor(531131*self._valid_ratio[2]) 
+                        and math.floor(531131*self._valid_ratio[2])
                         or self._valid_per_class[2] * 10)
    end
-   
+
    self._input_tensor = torch.FloatTensor(nSample, 3, 32, 32):fill(-1)
    self._target_tensor = torch.IntTensor(nSample):fill(-1)
-   self._index_tensor = self._shuffle 
+   self._index_tensor = self._shuffle
                         and torch.randperm(nSample-nValid):long()
                         or torch.range(1, nSample-nValid):long()
-  
+
    self._train_start = 1
    self._valid_stop = nSample
-   
 
    self:_loadTrainValid(
-      self._train_file, 
-      self._valid_ratio and self._valid_ratio[1], 
+      self._train_file,
+      self._valid_ratio and self._valid_ratio[1],
       self._valid_per_class and self._valid_per_class[1]
    )
-   
+
    if self._use_extra then
       self:_loadTrainValid(
-         self._extra_file, 
-         self._valid_ratio and self._valid_ratio[2], 
+         self._extra_file,
+         self._valid_ratio and self._valid_ratio[2],
          self._valid_per_class and self._valid_per_class[2]
       )
    end
-   
+
    assert(self._input_tensor:min() > -1)
    assert(self._target_tensor:min() > -1)
-   
-   self:trainSet(
-      self:createDataSet(
-         self._input_tensor:narrow(1, 1, nSample-nValid),
-         self._target_tensor:narrow(1, 1, nSample-nValid),
-         'train'
-      )
-   )
-   
-   -- valid
-   self:validSet(
-      self:createDataSet(
-         self._input_tensor:narrow(1, nSample-nValid+1, nValid),
-         self._target_tensor:narrow(1, nSample-nValid+1, nValid),
-         'valid'
-      )
-   )
+
+
+  local fractTSize = math.floor((nSample-nValid) * self._fracture_data )
+  local fractVSize = math.floor((nValid) * self._fracture_data )
+
+  self:trainSet(
+     self:createDataSet(
+        self._input_tensor:narrow(1, 1, fractTSize),
+        self._target_tensor:narrow(1, 1, fractTSize),
+        'train'
+     )
+  )
+
+  -- valid
+  self:validSet(
+     self:createDataSet(
+        self._input_tensor:narrow(1, fractTSize+1, fractVSize),
+        self._target_tensor:narrow(1, fractTSize+1, fractVSize),
+        'valid'
+     )
+  )
+
 
    return self:trainSet(), self:validSet()
 end
@@ -242,7 +248,7 @@ function Svhn:loadTest()
    local data = torch.load(doc_path,'ascii')
    local inputs = data.X:transpose(3,4):float()
    local targets = data.y:view(-1)
-   
+
    self:testSet(self:createDataSet(inputs, targets, 'test'))
    return self:testSet()
 end
