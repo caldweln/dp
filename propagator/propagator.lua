@@ -1,38 +1,38 @@
 ------------------------------------------------------------------------
 --[[ Propagator ]]--
--- Abstract Class for propagating a sampling distribution (Sampler) 
+-- Abstract Class for propagating a sampling distribution (Sampler)
 -- through a module in order to evaluate its criterion, train, etc.
--- To make your own training algorithm, you can build your own 
--- propagator. If you can reduce it to reusable components, you could 
+-- To make your own training algorithm, you can build your own
+-- propagator. If you can reduce it to reusable components, you could
 -- then refactor these into visitors, observers, etc.
 ------------------------------------------------------------------------
 local Propagator = torch.class("dp.Propagator")
 Propagator.isPropagator = true
 
-function Propagator:__init(config)   
+function Propagator:__init(config)
    assert(type(config) == 'table', "Constructor requires key-value arguments")
-   local args, loss, callback, epoch_callback, sampler, observer, 
+   local args, loss, callback, epoch_callback, sampler, observer,
       feedback, progress, verbose, stats = xlua.unpack(
       {config},
-      'Propagator', 
+      'Propagator',
       'Propagates Batches sampled from a DataSet using a Sampler '..
-      'through a Model in order to evaluate a Loss, provide Feedback '.. 
+      'through a Model in order to evaluate a Loss, provide Feedback '..
       'or train the model',
       {arg='loss', type='nn.Criterion',
        help='a neural network Criterion to evaluate or minimize'},
       {arg='callback', type='function',
        help='function(model, report) that does things like'..
        'update model, gather statistics, decay learning rate, etc.'},
-      {arg='epoch_callback', type='function', 
+      {arg='epoch_callback', type='function',
        help='function(model, report) that is called between epochs'},
-      {arg='sampler', type='dp.Sampler', 
+      {arg='sampler', type='dp.Sampler',
        help='Iterates through a DataSet. [Default=dp.Sampler()]'},
-      {arg='observer', type='dp.Observer', 
+      {arg='observer', type='dp.Observer',
        help='observer that is informed when an event occurs.'},
       {arg='feedback', type='dp.Feedback',
        help='takes predictions, targets, model and visitor as input '..
        'and provides feedback through report(), setState, or mediator'},
-      {arg='progress', type='boolean', default=false, 
+      {arg='progress', type='boolean', default=false,
        help='display progress bar'},
       {arg='verbose', type='boolean', default=true,
        help='print verbose information'},
@@ -55,7 +55,7 @@ function Propagator:setup(config)
    assert(type(config) == 'table', "Setup requires key-value arguments")
    local args, id, model, mediator, target_module = xlua.unpack(
       {config},
-      'Propagator:setup', 
+      'Propagator:setup',
       'Post-initialization setup of the Propagator',
       {arg='id', type='dp.ObjectID', req=true,
        help='uniquely identifies the propagator.'},
@@ -63,7 +63,7 @@ function Propagator:setup(config)
        help='the model that is to be trained or tested',},
       {arg='mediator', type='dp.Mediator', req=true,
        help='used for inter-object communication.'},
-      {arg='target_module', type='nn.Module', 
+      {arg='target_module', type='nn.Module',
        help='Optional module through which targets can be forwarded'}
    )
    assert(torch.isTypeOf(id, 'dp.ObjectID'))
@@ -89,23 +89,23 @@ function Propagator:propagateEpoch(dataset, report)
    if self._feedback then
       self._feedback:reset()
    end
-   
+
    -- local vars
    local start_time = sys.clock()
    local batch, i, n, last_n
    local n_batch = 0
-   
+
    if self._stats and self._verbose then
       print('==> epoch # '..(report.epoch + 1)..' for '..self:name()..' :')
    end
-   
+
    if self._model.forget then
       -- for recurrent modules, forget between epochs
       self._model:forget()
    end
-   
+
    self._epoch_callback(self._model, report)
-   
+
    self._n_sample = 0
    local sampler = self._sampler:sampleEpoch(dataset)
    while true do
@@ -113,19 +113,19 @@ function Propagator:propagateEpoch(dataset, report)
       if batch then
          assert(torch.type(batch) == 'dp.Batch')
       end
-      
+
       batch, i, n = sampler(batch)
-      if not batch then 
+      if not batch then
          -- for aesthetics :
          if self._progress then
             xlua.progress(last_n, last_n)
          end
-         break 
+         break
       end
-      
+
       self.nSample = i
       self:propagateBatch(batch, report)
-      
+
       if self._progress then
          -- display progress
          xlua.progress(i, n)
@@ -133,7 +133,7 @@ function Propagator:propagateEpoch(dataset, report)
       last_n = n
       n_batch = n_batch + 1
    end
-   
+
    -- time taken
    self._epoch_duration = sys.clock() - start_time
    self._batch_duration = self._epoch_duration / math.max(n_batch, 0.000001)
@@ -142,7 +142,9 @@ function Propagator:propagateEpoch(dataset, report)
    if self._stats and self._verbose then
       print("==> example speed = "..self._example_speed..' examples/s')
    end
-end      
+
+   self:doneEpoch(report)
+end
 
 function Propagator:propagateBatch(batch)
    error"NotImplementedError"
@@ -157,10 +159,10 @@ function Propagator:forward(batch)
    end
    -- useful for calling accUpdateGradParameters in callback function
    self._model.dpnn_input = input
-   
+
    -- forward propagate through model
    self.output = self._model:forward(input)
-   
+
    if not self._loss then
       return
    end
@@ -174,21 +176,25 @@ function Propagator:monitor(batch, report)
    if self._feedback then
       self._feedback:add(batch, self.output, report)
    end
-   
+
    --publish report for this optimizer
    self._mediator:publish(self:name()..':'.."doneFeedback", report, batch)
 end
 
-function Propagator:doneBatch(report)   
+function Propagator:doneBatch(report)
    --publish report for this optimizer
    self._mediator:publish(self:name()..':'.."doneBatch", report)
 end
 
+function Propagator:doneEpoch(report)
+   self._mediator:publish(self:name()..':'.."doneEpoch", report)
+end
+
 -- returns a log for the current epoch, in the format of a table
 -- or we could create an EpochLog class to help with this.
--- But a table is more flexible. The advantage over pylearn2 is that 
--- the log of an epoch is structured, as opposed to just a list of 
--- channel names and values. Furthermore, values can be anything 
+-- But a table is more flexible. The advantage over pylearn2 is that
+-- the log of an epoch is structured, as opposed to just a list of
+-- channel names and values. Furthermore, values can be anything
 -- serializable.
 function Propagator:report()
    local avgErr
@@ -199,7 +205,7 @@ function Propagator:report()
       end
    end
    local report = {
-      name = self:id():name(),      
+      name = self:id():name(),
       loss = self._loss and self._loss.report and self._loss:report() or avgErr,
       sampler = self._sampler:report(),
       epoch_duration = self._epoch_duration,
